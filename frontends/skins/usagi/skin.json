@@ -1,0 +1,64 @@
+{
+  "name": "Usagi",
+  "version": "1.0.1",
+  "author": "Yaha-Pet (fan import)",
+  "source": "https://github.com/gitChara-dot/Yaha-Pet",
+  "license": "MIT (assets: fan-made, Chiikawa IP by Nagano)",
+  "description": "乌萨奇",
+  "style": "cartoon",
+  "format": "sprite",
+  "size": {
+    "width": 95,
+    "height": 128
+  },
+  "animations": {
+    "idle": {
+      "file": "idle.png",
+      "loop": true,
+      "sprite": {
+        "frameWidth": 190,
+        "frameHeight": 256,
+        "frameCount": 6,
+        "columns": 6,
+        "fps": 3,
+        "startFrame": 0
+      }
+    },
+    "walk": {
+      "file": "walk.png",
+      "loop": true,
+      "sprite": {
+        "frameWidth": 190,
+        "frameHeight": 256,
+        "frameCount": 10,
+        "columns": 10,
+        "fps": 6,
+        "startFrame": 0
+      }
+    },
+    "run": {
+      "file": "run.png",
+      "loop": true,
+      "sprite": {
+        "frameWidth": 190,
+        "frameHeight": 256,
+        "frameCount": 8,
+        "columns": 8,
+        "fps": 10,
+        "startFrame": 0
+      }
+    },
+    "sprint": {
+      "file": "sprint.png",
+      "loop": true,
+      "sprite": {
+        "frameWidth": 256,
+        "frameHeight": 218,
+        "frameCount": 10,
+        "columns": 10,
+        "fps": 12,
+        "startFrame": 0
+      }
+    }
+  }
+}

@@ -7,6 +7,7 @@ elif hasattr(sys.stderr, 'reconfigure'): sys.stderr.reconfigure(errors='replace'
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from llmcore import reload_mykeys, LLMSession, ToolClient, ClaudeSession, MixinSession, NativeToolClient, NativeClaudeSession, NativeOAISession, resolve_client
+from llmcore import token_tracker, format_model_signature
 from agent_loop import agent_runner_loop
 from ga import GenericAgentHandler, smart_format, get_global_memory, format_error, consume_file
 
@@ -141,8 +142,11 @@ class GenericAgent:
                 handler.working['key_info'] = ki
                 handler.working['passed_sessions'] = ps = self.handler.working.get('passed_sessions', 0) + 1
                 if ps > 0: handler.working['key_info'] += f'\n[SYSTEM] 此为 {ps} 个对话前设置的key_info，若已在新任务，先更新或清除工作记忆。\n'
-            self.handler = handler  # although new handler, the **full** history is in llmclient, so it is full history!
+            self.handler = handler
             self.llmclient.log_path = self.log_path
+            # Snapshot token totals before this task
+            _token_before = token_tracker.get_total_summary()
+            # although new handler, the **full** history is in llmclient, so it is full history!
             gen = agent_runner_loop(self.llmclient, sys_prompt, raw_query, 
                                 handler, TOOLS_SCHEMA, max_turns=70, verbose=self.verbose)
             try:
@@ -157,6 +161,13 @@ class GenericAgent:
                 if self.inc_out and last_pos < len(full_resp): display_queue.put({'next': full_resp[last_pos:], 'source': source})
                 if '</summary>' in full_resp: full_resp = full_resp.replace('</summary>', '</summary>\n\n')
                 if '</file_content>' in full_resp: full_resp = re.sub(r'<file_content>\s*(.*?)\s*</file_content>', r'\n````\n<file_content>\n\1\n</file_content>\n````', full_resp, flags=re.DOTALL)                
+                # Append token usage stats
+                _token_after = token_tracker.get_total_summary()
+                _task_in = _token_after['input'] - _token_before['input']
+                _task_out = _token_after['output'] - _token_before['output']
+                _task_total = _task_in + _task_out
+                _all_total = _token_after['total']
+                full_resp += f"\n\n---\n📊 Token: 本次 {_task_total:,} (in={_task_in:,} out={_task_out:,}) | 累计 {_all_total:,} | {format_model_signature(self.llmclient.backend).removeprefix('[Model] ')}"
                 display_queue.put({'done': full_resp, 'source': source})
                 self.history = handler.history_info
             except Exception as e:

@@ -1,0 +1,64 @@
+{
+  "name": "Chiikawa",
+  "version": "1.0.1",
+  "author": "Yaha-Pet (fan import)",
+  "source": "https://github.com/gitChara-dot/Yaha-Pet",
+  "license": "MIT (assets: fan-made, Chiikawa IP by Nagano)",
+  "description": "吉伊卡哇",
+  "style": "cartoon",
+  "format": "sprite",
+  "size": {
+    "width": 139,
+    "height": 128
+  },
+  "animations": {
+    "idle": {
+      "file": "idle.png",
+      "loop": true,
+      "sprite": {
+        "frameWidth": 256,
+        "frameHeight": 256,
+        "frameCount": 4,
+        "columns": 4,
+        "fps": 3,
+        "startFrame": 0
+      }
+    },
+    "walk": {
+      "file": "walk.png",
+      "loop": true,
+      "sprite": {
+        "frameWidth": 256,
+        "frameHeight": 235,
+        "frameCount": 10,
+        "columns": 10,
+        "fps": 6,
+        "startFrame": 0
+      }
+    },
+    "run": {
+      "file": "run.png",
+      "loop": true,
+      "sprite": {
+        "frameWidth": 256,
+        "frameHeight": 235,
+        "frameCount": 8,
+        "columns": 8,
+        "fps": 10,
+        "startFrame": 0
+      }
+    },
+    "sprint": {
+      "file": "sprint.png",
+      "loop": true,
+      "sprite": {
+        "frameWidth": 256,
+        "frameHeight": 235,
+        "frameCount": 6,
+        "columns": 6,
+        "fps": 14,
+        "startFrame": 0
+      }
+    }
+  }
+}

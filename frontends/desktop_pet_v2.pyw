@@ -9,6 +9,23 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.dirname(SCRIPT_DIR)
 SKINS_DIR = os.path.join(SCRIPT_DIR, 'skins')
 
+def _start_parent_watchdog(parent_pid):
+    """Monitor parent process; exit if parent dies."""
+    if parent_pid is None:
+        return
+    import signal
+    def _watch():
+        while True:
+            try:
+                os.kill(parent_pid, 0)  # check if parent is alive (signal 0 = no-op)
+            except (OSError, ProcessLookupError):
+                print(f'[Pet] Parent process {parent_pid} exited, shutting down.')
+                os._exit(0)
+            import time
+            time.sleep(2)
+    t = threading.Thread(target=_watch, daemon=True)
+    t.start()
+
 class SkinLoader:
     """Load and parse skin configuration"""
     @staticmethod
@@ -248,7 +265,12 @@ class PetBase:
                 parsed = urlparse(self.path)
                 params = parse_qs(parsed.query)
 
-                if 'state' in params:
+                if parsed.path == '/shutdown' or 'shutdown' in params:
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(b'bye')
+                    threading.Thread(target=lambda: os._exit(0), daemon=True).start()
+                elif 'state' in params:
                     state = params['state'][0]
                     pet.set_state_safe(state)
                     self.send_response(200)
@@ -352,10 +374,11 @@ if sys.platform == 'darwin':
 
             class DraggableImageView(NSView):
                 """Custom view that handles dragging and double-click"""
-                def initWithFrame_(self, frame):
+                def initWithFrame_pet_(self, frame, pet):
                     self = objc_super(DraggableImageView, self).initWithFrame_(frame)
                     if self is None:
                         return None
+                    self.pet_ref = pet
                     self.image_view = NSImageView.alloc().initWithFrame_(self.bounds())
                     self.image_view.setImageScaling_(1)  # NSImageScaleProportionallyUpOrDown
                     self.addSubview_(self.image_view)
@@ -403,7 +426,7 @@ if sys.platform == 'darwin':
                     from AppKit import NSMenu, NSMenuItem, NSApp
 
                     menu = NSMenu.alloc().init()
-                    pet = getattr(self, 'mac_pet', None) or self.window().delegate()
+                    pet = getattr(self, 'pet_ref', None) or getattr(self, 'mac_pet', None) or self.window().delegate()
                     if not pet:
                         return
 
@@ -425,8 +448,9 @@ if sys.platform == 'darwin':
                     NSMenu.popUpContextMenu_withEvent_forView_(menu, event, self)
 
             # Create draggable view
-            self.content_view = DraggableImageView.alloc().initWithFrame_(
-                NSMakeRect(0, 0, self.display_width, self.display_height)
+            self.content_view = DraggableImageView.alloc().initWithFrame_pet_(
+                NSMakeRect(0, 0, self.display_width, self.display_height),
+                self
             )
             self.content_view.mac_pet = self
             self.image_view = self.content_view.image_view
@@ -509,6 +533,19 @@ if sys.platform == 'darwin':
                     'fps': anim_config.get('sprite', {}).get('fps', 6)
                 }
 
+        def _restart_anim_timer(self):
+            anim = self.animations.get(self.current_state) or next(iter(self.animations.values()))
+            fps = max(1, anim.get('fps', 6))
+            if hasattr(self, 'timer') and self.timer:
+                self.timer.invalidate()
+            self.timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
+                1.0 / fps,
+                self,
+                'animate:',
+                None,
+                True
+            )
+
         def animate_(self, timer):
             """Animation callback"""
             anim = self.animations[self.current_state]
@@ -523,16 +560,7 @@ if sys.platform == 'darwin':
             if state in self.animations and state != self.current_state:
                 self.current_state = state
                 self.frame_idx = 0
-
-                # Update timer interval
-                self.timer.invalidate()
-                self.timer = NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(
-                    1.0 / self.animations[self.current_state]['fps'],
-                    self,
-                    'animate:',
-                    None,
-                    True
-                )
+                self._restart_anim_timer()
                 print(f"→ State: {state}")
 
         def _schedule_main(self, fn):
@@ -615,6 +643,10 @@ if sys.platform == 'darwin':
             self.load_skin(skin_name)
             self.current_state = 'idle'
             self.frame_idx = 0
+            self._restart_anim_timer()
+            frames = self.animations[self.current_state]['frames']
+            if frames:
+                self.image_view.setImage_(frames[0])
 
 # ============================================================================
 # Windows/Linux Implementations
@@ -1068,6 +1100,15 @@ else:
                 self.app.exec()
 
 if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--parent-pid', type=int, default=None, help='Parent process PID to monitor; pet exits when parent dies.')
+    args, _ = parser.parse_known_args()
+
+    # Start parent watchdog if launched with --parent-pid
+    if args.parent_pid is not None:
+        _start_parent_watchdog(args.parent_pid)
+
     # Singleton: if port already in use, another instance is running
     import socket
     _s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -1080,11 +1121,11 @@ if __name__ == '__main__':
         pass
 
     if sys.platform == 'darwin':
-        pet = MacPet('vita')
+        pet = MacPet('hulu')
         pet.run()
     elif sys.platform.startswith('win'):
-        pet = WinPet('vita')
+        pet = WinPet('hulu')
     else:
-        pet = LinuxPet('vita')
+        pet = LinuxPet('hulu')
         pet.run()
 

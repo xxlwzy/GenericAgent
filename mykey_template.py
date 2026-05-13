@@ -118,7 +118,7 @@
 # ╚═══════════════════════════════════════════════════════════════════════════╝
 #
 #  推荐使用 mixin 故障转移 + 多个 native session 的方式。
-#  mixin 会按 llm_nos 列表顺序尝试，第一个失败自动切下一个，非常省心。
+#  mixin 会按 llm_nos 列表顺序尝试，默认魔搭 ModelScope 优先，失败自动切备用。
 #  填好下面的 apikey/apibase 后即可使用。
 
 
@@ -128,8 +128,8 @@
 #  NativeOAISession 可以混用）或者全不是 Native，不能 Native 与非 Native 混。
 #  请你按需
 mixin_config = {
-    'llm_nos': ['gpt-native'],   # 按优先级排列；Claude 与 GPT 混用
-    # 'llm_nos': ['cc-relay-1', 'cc-relay-2', 'gpt-native'],  # 按优先级排列；Claude 与 GPT 混用，注意: 启用时需要启用'cc-relay-1', 'cc-relay-2'配置!
+    'llm_nos': ['modelscope-native', 'gpt-native'],   # 魔搭优先，失败自动切 OpenAI 等备用
+    # 'llm_nos': ['cc-relay-1', 'cc-relay-2', 'modelscope-native', 'gpt-native'],  # 按需混用 Claude / 魔搭 / GPT
     'max_retries': 10,           # int；整个 rotation 的总重试次数上限
     'base_delay': 0.5,           # float 秒；指数退避起始延迟（retry n 时延迟≈base_delay * 2^n）
     # 'spring_back': 300,        # int 秒；切到备用节点后多久再尝试回到第一个节点
@@ -284,6 +284,20 @@ mixin_config = {
 #  但工具调用使用 API 原生 function calling 字段（与 Claude Code/Codex 一致）。
 #  适合 GPT/o 系列、Gemini 或任何 OAI 兼容且支持原生 tool 字段的模型。
 #  和 NativeClaudeSession 共用大部分逻辑（继承关系），只是请求走 OAI 协议。
+
+# ── 2a. 魔搭 ModelScope（推荐默认第一优先级）────────────────────────────────
+#  OpenAI 兼容推理 API，每日免费额度。Token 在 https://modelscope.cn/my/myaccesstoken
+#  申请；需绑定阿里云账号，否则可能 401。文档与 qwen-code 一致。
+native_oai_config_modelscope = {
+    'name': 'modelscope-native',                     # /llms 显示名 & mixin 引用名（mixin 默认排第一）
+    'apikey': '<your-modelscope-token>',            # 魔搭 Access Token
+    'apibase': 'https://api-inference.modelscope.cn/v1',  # 自动补 /chat/completions
+    'model': 'Qwen/Qwen3-Coder-480B-A35B-Instruct', # 或 Qwen/Qwen3-Coder-30B-A3B-Instruct
+    'api_mode': 'chat_completions',
+    'max_retries': 3,
+    'connect_timeout': 10,
+    'read_timeout': 180,
+}
 
 native_oai_config = {
     'name': 'gpt-native',                           # /llms 显示名 & mixin 引用名

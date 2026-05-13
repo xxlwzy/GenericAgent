@@ -78,6 +78,12 @@ class ServiceManager:
     def stop_all(self):
         for name in list(self.procs):
             self.stop(name)
+        # Also shutdown desktop pet if running
+        try:
+            import urllib.request
+            urllib.request.urlopen('http://127.0.0.1:41983/shutdown', timeout=2)
+        except Exception:
+            pass
 
     def get_output(self, name):
         buf = self.buffers.get(name)

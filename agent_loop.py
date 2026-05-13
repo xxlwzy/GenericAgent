@@ -1,6 +1,7 @@
 import json, re, os
 from dataclasses import dataclass
 from typing import Any, Optional
+from llmcore import token_tracker, format_model_signature, format_turn_dialog_footer
 @dataclass
 class StepOutcome:
     data: Any
@@ -51,6 +52,7 @@ def agent_runner_loop(client, system_prompt, user_input, handler, tools_schema, 
         if verbose: turnstr = f'**{turnstr}**'
         yield f"\n\n{turnstr}\n\n"
         if turn%10 == 0: client.last_tools = ''  # 每10轮重置一次工具描述，避免上下文过大导致的模型性能下降
+        token_tracker.start_turn()
         response_gen = client.chat(messages=messages, tools=tools_schema)
         if verbose:
             response = yield from response_gen
@@ -59,6 +61,10 @@ def agent_runner_loop(client, system_prompt, user_input, handler, tools_schema, 
             response = exhaust(response_gen)
             cleaned = _clean_content(response.content)
             if cleaned: yield cleaned + '\n'
+        print(token_tracker.format_turn_log())
+        print(token_tracker.format_total_log())
+        print(format_model_signature(client.backend))
+        yield format_turn_dialog_footer(client.backend)
 
         if not response.tool_calls: tool_calls = [{'tool_name': 'no_tool', 'args': {}}]
         else: tool_calls = [{'tool_name': tc.function.name, 'args': json.loads(tc.function.arguments), 'id': tc.id}

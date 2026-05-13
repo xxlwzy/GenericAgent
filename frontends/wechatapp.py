@@ -58,12 +58,25 @@ class WxBotClient:
         r = requests.get(f'{API}/ilink/bot/get_bot_qrcode', params={'bot_type': 3}, headers={'User-Agent': UA}, timeout=10)
         r.raise_for_status()
         d = r.json()
-        qr_id, url = d['qrcode'], d.get('qrcode_img_content', '')
+        qr_id = d['qrcode']
+        url = d.get('qrcode_img_content', '')
         print(f'[QR登录] ID: {qr_id}')
-        if url:
+        # Build QR content: prefer qrcode_img_content, fall back to qrcode ID itself
+        qr_content = url or qr_id
+        if qr_content:
             img = self._tf.parent / 'wx_qr.png'
-            qrcode.make(url).save(str(img)); webbrowser.open(str(img))
-            qr = qrcode.QRCode(border=1); qr.add_data(url); qr.make(fit=True); qr.print_ascii(invert=True)
+            qrcode.make(qr_content).save(str(img))
+            try:
+                webbrowser.open(str(img))
+            except Exception as e:
+                print(f'[QR登录] 浏览器打开失败: {e}')
+            try:
+                qr = qrcode.QRCode(border=1)
+                qr.add_data(qr_content)
+                qr.make(fit=True)
+                qr.print_ascii(invert=True)
+            except Exception:
+                print(f'[QR登录] 请手动打开二维码: {img}')
         last = ''
         while True:
             time.sleep(poll_interval)
@@ -321,6 +334,35 @@ def on_message(bot, msg):
     if text in ('/stop', '/abort'):
         agent.abort()
         bot.send_text(uid, '已停止', context_token=ctx)
+        return
+    if text in ('/help',):
+        help_text = "📖 命令列表:\n/help - 显示帮助\n/status - 查看状态\n/stop - 停止当前任务\n/new - 开启新对话\n/continue - 列出可恢复会话\n/continue N - 恢复第N个会话\n/llm - 查看模型列表\n/llm N - 切换到第N个模型"
+        bot.send_text(uid, help_text, context_token=ctx)
+        return
+    if text in ('/status',):
+        llm = agent.get_llm_name() if agent.llmclient else '未配置'
+        bot.send_text(uid, f"状态: {'🔴 运行中' if agent.is_running else '🟢 空闲'}\nLLM: [{agent.llm_no}] {llm}", context_token=ctx)
+        return
+    if text in ('/new',):
+        from continue_cmd import reset_conversation
+        result = reset_conversation(agent)
+        bot.send_text(uid, result, context_token=ctx)
+        return
+    if text.startswith('/continue'):
+        from continue_cmd import handle_frontend_command
+        result = handle_frontend_command(agent, text)
+        bot.send_text(uid, result, context_token=ctx)
+        return
+    if text in ('/restore',):
+        from chatapp_common import format_restore
+        restored_info, err = format_restore()
+        if err:
+            bot.send_text(uid, err, context_token=ctx)
+        else:
+            restored, fname, count = restored_info
+            agent.abort()
+            agent.history.extend(restored)
+            bot.send_text(uid, f'✅ 已恢复 {count} 轮对话\n来源: {fname}\n(请输入新问题继续)', context_token=ctx)
         return
     if text.startswith('/llm'):
         args = text.split()

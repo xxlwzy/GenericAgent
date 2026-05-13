@@ -1,0 +1,64 @@
+{
+  "name": "呼噜",
+  "version": "1.0.1",
+  "author": "video import",
+  "source": "/Users/xiexuan/Downloads/呼噜.mp4",
+  "license": "personal use",
+  "description": "自家小猫",
+  "style": "photo",
+  "format": "sprite",
+  "size": {
+    "width": 80,
+    "height": 128
+  },
+  "animations": {
+    "idle": {
+      "file": "idle.png",
+      "loop": true,
+      "sprite": {
+        "frameWidth": 159,
+        "frameHeight": 256,
+        "frameCount": 16,
+        "columns": 16,
+        "fps": 3,
+        "startFrame": 0
+      }
+    },
+    "walk": {
+      "file": "walk.png",
+      "loop": true,
+      "sprite": {
+        "frameWidth": 159,
+        "frameHeight": 256,
+        "frameCount": 16,
+        "columns": 16,
+        "fps": 5,
+        "startFrame": 0
+      }
+    },
+    "run": {
+      "file": "run.png",
+      "loop": true,
+      "sprite": {
+        "frameWidth": 159,
+        "frameHeight": 256,
+        "frameCount": 16,
+        "columns": 16,
+        "fps": 8,
+        "startFrame": 0
+      }
+    },
+    "sprint": {
+      "file": "sprint.png",
+      "loop": true,
+      "sprite": {
+        "frameWidth": 159,
+        "frameHeight": 256,
+        "frameCount": 16,
+        "columns": 16,
+        "fps": 12,
+        "startFrame": 0
+      }
+    }
+  }
+}

@@ -292,8 +292,92 @@ def _parse_openai_sse(resp_lines, api_mode="chat_completions"):
                 blocks.append({"type": "tool_use", "id": bid, "name": tc["name"], "input": inp})
         return blocks
 
+class TokenTracker:
+    """Track token usage per-turn and cumulative across the session."""
+    def __init__(self):
+        self.turn_input_tokens = 0
+        self.turn_output_tokens = 0
+        self.turn_cache_read_tokens = 0
+        self.turn_cache_creation_tokens = 0
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
+        self.total_cache_read_tokens = 0
+        self.total_cache_creation_tokens = 0
+        self.turn_count = 0
+
+    def record(self, usage, api_mode):
+        if not usage:
+            return
+        inp = out = cached_read = cached_create = 0
+        if api_mode == 'responses':
+            inp = usage.get("input_tokens", 0)
+            out = usage.get("output_tokens", 0)
+            cached_read = (usage.get("input_tokens_details") or {}).get("cached_tokens", 0)
+        elif api_mode == 'chat_completions':
+            inp = usage.get("prompt_tokens", 0)
+            out = usage.get("completion_tokens", 0)
+            cached_read = (usage.get("prompt_tokens_details") or {}).get("cached_tokens", 0)
+        elif api_mode == 'messages':
+            inp = usage.get("input_tokens", 0)
+            out = usage.get("output_tokens", 0)
+            cached_create = usage.get("cache_creation_input_tokens", 0)
+            cached_read = usage.get("cache_read_input_tokens", 0)
+        self.turn_input_tokens += inp
+        self.turn_output_tokens += out
+        self.turn_cache_read_tokens += cached_read
+        self.turn_cache_creation_tokens += cached_create
+        self.total_input_tokens += inp
+        self.total_output_tokens += out
+        self.total_cache_read_tokens += cached_read
+        self.total_cache_creation_tokens += cached_create
+
+    def start_turn(self):
+        """Reset per-turn counters at the start of a new LLM call."""
+        self.turn_input_tokens = 0
+        self.turn_output_tokens = 0
+        self.turn_cache_read_tokens = 0
+        self.turn_cache_creation_tokens = 0
+        self.turn_count += 1
+
+    def get_turn_summary(self):
+        return {
+            'input': self.turn_input_tokens,
+            'output': self.turn_output_tokens,
+            'cache_read': self.turn_cache_read_tokens,
+            'cache_creation': self.turn_cache_creation_tokens,
+            'total': self.turn_input_tokens + self.turn_output_tokens,
+        }
+
+    def get_total_summary(self):
+        return {
+            'input': self.total_input_tokens,
+            'output': self.total_output_tokens,
+            'cache_read': self.total_cache_read_tokens,
+            'cache_creation': self.total_cache_creation_tokens,
+            'total': self.total_input_tokens + self.total_output_tokens,
+            'turns': self.turn_count,
+        }
+
+    def format_turn_log(self):
+        t = self.get_turn_summary()
+        parts = [f"in={t['input']}", f"out={t['output']}"]
+        if t['cache_read']: parts.append(f"cache_read={t['cache_read']}")
+        if t['cache_creation']: parts.append(f"cache_create={t['cache_creation']}")
+        return f"[Token Turn] {' '.join(parts)} (turn_total={t['total']})"
+
+    def format_total_log(self):
+        t = self.get_total_summary()
+        parts = [f"in={t['input']}", f"out={t['output']}"]
+        if t['cache_read']: parts.append(f"cache_read={t['cache_read']}")
+        if t['cache_creation']: parts.append(f"cache_create={t['cache_creation']}")
+        return f"[Token Total] {' '.join(parts)} (total={t['total']}, turns={t['turns']})"
+
+# Global token tracker instance
+token_tracker = TokenTracker()
+
 def _record_usage(usage, api_mode):
     if not usage: return
+    token_tracker.record(usage, api_mode)
     if api_mode == 'responses':
         cached = (usage.get("input_tokens_details") or {}).get("cached_tokens", 0)
         inp = usage.get("input_tokens", 0)
@@ -906,6 +990,7 @@ class MixinSession:
         self._sessions[0].raw_ask = self._raw_ask
         self.model = getattr(self._sessions[0], 'model', None)
         self._cur_idx, self._switched_at = 0, 0.0
+        self._last_used_idx = 0
     def __getattr__(self, name): return getattr(self._sessions[0], name)
     _BROADCAST_ATTRS = frozenset({'system', 'tools', 'temperature', 'max_tokens', 'reasoning_effort', 'history'})
     def __setattr__(self, name, value):
@@ -935,6 +1020,7 @@ class MixinSession:
             except StopIteration as e: return_val = e.value or []
             is_err = test_error(last_chunk)
             if not is_err:
+                self._last_used_idx = idx
                 if attempt > 0: self._cur_idx = idx; self._switched_at = time.time()
                 elif isinstance(last_chunk, str) and '[!!! 流异常中断' in last_chunk and n > 1:
                     self._cur_idx = (idx + 1) % n; self._switched_at = time.time()
@@ -949,6 +1035,29 @@ class MixinSession:
                 print(f'[MixinSession] {last_chunk[:80]}, round {rnd} exhausted, retry in {delay:.1f}s')
                 time.sleep(delay)
             else: print(f'[MixinSession] {last_chunk[:80]}, retry {attempt+1}/{self._retries} (s{idx}→s{nxt})')
+
+def _resolved_backend(backend):
+    if isinstance(backend, MixinSession):
+        return backend._sessions[getattr(backend, '_last_used_idx', 0)]
+    return backend
+
+def format_model_signature(backend):
+    """One-line label for the backend that served the request (resolves Mixin failover)."""
+    b = _resolved_backend(backend)
+    cls = type(b).__name__
+    name = getattr(b, 'name', None) or getattr(b, 'model', '?')
+    model = getattr(b, 'model', '?')
+    return f"[Model] {cls}/{name} ({model})"
+
+def format_turn_dialog_footer(backend):
+    """User-visible per-turn footer: token usage + model signature."""
+    t = token_tracker.get_turn_summary()
+    total = token_tracker.get_total_summary()
+    b = _resolved_backend(backend)
+    name = getattr(b, 'name', None) or getattr(b, 'model', '?')
+    model = getattr(b, 'model', '?')
+    line = f"📊 Token: 本轮 {t['total']:,} (in={t['input']:,} out={t['output']:,}) | 累计 {total['total']:,} | {name} ({model})"
+    return f"\n\n---\n{line}\n"
 
 THINKING_PROMPT_ZH = """
 ### 行动规范（持续有效）

@@ -40,6 +40,21 @@ native_claude_config = {
 }
 
 
+# ── 2a. ModelScope (recommended first priority) ──────────────────────────────
+#  OpenAI-compatible inference API with daily free quota.
+#  Get token at https://modelscope.cn/my/myaccesstoken (Aliyun account required).
+native_oai_config_modelscope = {
+    'name': 'modelscope-native',
+    'apikey': '<your-modelscope-token>',
+    'apibase': 'https://api-inference.modelscope.cn/v1',
+    'model': 'Qwen/Qwen3-Coder-480B-A35B-Instruct',
+    'api_mode': 'chat_completions',
+    'max_retries': 3,
+    'connect_timeout': 10,
+    'read_timeout': 180,
+}
+
+
 # ── 2. NativeOAISession — OpenAI direct ──────────────────────────────────────
 #  Standard OpenAI chat/completions endpoint. Also works for any OpenAI-
 #  compatible provider that supports native function-calling tool fields.
@@ -59,11 +74,11 @@ native_oai_config = {
 #  List sessions by 'name'; if one fails, the next is tried automatically.
 #  Constraint: all referenced sessions must be Native (mixing Native Claude
 #  and Native OAI is fine; mixing Native with non-Native is not).
-# mixin_config = {
-#     'llm_nos': ['claude', 'gpt'],
-#     'max_retries': 5,
-#     'base_delay': 0.5,
-# }
+mixin_config = {
+    'llm_nos': ['modelscope-native', 'gpt'],
+    'max_retries': 10,
+    'base_delay': 0.5,
+}
 
 
 # ── 4. Global HTTP proxy (optional) ──────────────────────────────────────────

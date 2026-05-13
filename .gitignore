@@ -1,5 +1,6 @@
 temp/
 tmp/
+.tmp_chiikawa/
 
 __pycache__/
 *.py[cod]

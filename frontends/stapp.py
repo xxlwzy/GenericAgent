@@ -14,6 +14,7 @@ sys.path.append(os.path.abspath(script_dir))
 import streamlit as st
 import time, json, re, threading, queue
 from agentmain import GeneraticAgent
+from llmcore import token_tracker
 import chatapp_common  # activate /continue command (monkey patches GeneraticAgent)
 from continue_cmd import handle_frontend_command, reset_conversation, list_sessions, extract_ui_messages
 from btw_cmd import handle_frontend_command as btw_handle_frontend
@@ -58,7 +59,10 @@ def render_sidebar():
     llm_options = agent.list_llms()
     current_idx = agent.llm_no
     llm_labels = {idx: f"{idx}: {(name or '').strip()}" for idx, name, _ in llm_options}
-    st.caption(f"LLM Core: {llm_labels.get(current_idx, str(current_idx))}")
+    st.caption(f"LLM Core: {llm_labels.get(current_idx, str(current_idx))}", help="下拉切换备用链路")
+    total = token_tracker.get_total_summary()
+    if total['total'] > 0:
+        st.caption(f"📊 Token: {total['total']:,} (in={total['input']:,} out={total['output']:,}) | Turns: {total['turns']}")
     selected_idx = st.selectbox("LLM", [idx for idx, _, _ in llm_options], index=next((i for i, (idx, _, _) in enumerate(llm_options) if idx == current_idx), 0), format_func=llm_labels.get, label_visibility="collapsed", key="sidebar_llm_select")
     if selected_idx != current_idx:
         agent.next_llm(selected_idx); st.rerun(scope="fragment")
@@ -76,7 +80,16 @@ def render_sidebar():
         kwargs = {'creationflags': 0x08} if sys.platform == 'win32' else {}
         pet_script = os.path.join(script_dir, 'desktop_pet_v2.pyw')
         if not os.path.exists(pet_script): pet_script = os.path.join(script_dir, 'desktop_pet.pyw')
-        subprocess.Popen([sys.executable, pet_script], **kwargs)
+        pet_proc = subprocess.Popen([sys.executable, pet_script, '--parent-pid', str(os.getpid())], **kwargs)
+        # Track pet process for cleanup on exit
+        if not hasattr(agent, '_pet_procs'): agent._pet_procs = []
+        agent._pet_procs.append(pet_proc)
+        import atexit
+        def _kill_pet():
+            for p in getattr(agent, '_pet_procs', []):
+                try: p.terminate()
+                except Exception: pass
+        atexit.register(_kill_pet)
         def _pet_req(q):
             def _do():
                 try: urlopen(f'http://127.0.0.1:41983/?{q}', timeout=2)
@@ -271,6 +284,49 @@ if prompt := st.chat_input("any task?"):
         st.rerun()
     if cmd == "/new":
         st.session_state.messages = [{"role": "assistant", "content": reset_conversation(agent), "time": ts}]
+        _reset_and_rerun()
+    if cmd in ("/stop", "/abort"):
+        agent.abort()
+        st.session_state.messages = list(st.session_state.messages) + \
+            [{"role": "user", "content": cmd, "time": ts}, {"role": "assistant", "content": "⏹️ 已发送停止信号", "time": ts}]
+        _reset_and_rerun()
+    if cmd == "/status":
+        llm = agent.get_llm_name() if agent.llmclient else '未配置'
+        result = f"状态: {'🔴 运行中' if agent.is_running else '🟢 空闲'}\nLLM: [{agent.llm_no}] {llm}"
+        st.session_state.messages = list(st.session_state.messages) + \
+            [{"role": "user", "content": cmd, "time": ts}, {"role": "assistant", "content": result, "time": ts}]
+        _reset_and_rerun()
+    if cmd == "/restore":
+        from chatapp_common import format_restore
+        restored_info, err = format_restore()
+        if err:
+            result = err
+        else:
+            restored, fname, count = restored_info
+            agent.abort()
+            agent.history.extend(restored)
+            result = f"✅ 已恢复 {count} 轮对话\n来源: {fname}\n(请输入新问题继续)"
+        st.session_state.messages = list(st.session_state.messages) + \
+            [{"role": "user", "content": cmd, "time": ts}, {"role": "assistant", "content": result, "time": ts}]
+        _reset_and_rerun()
+    if cmd.startswith("/llm"):
+        parts = cmd.split()
+        if len(parts) > 1:
+            try:
+                agent.next_llm(int(parts[1]))
+                result = f"✅ 已切换到 [{agent.llm_no}] {agent.get_llm_name()}"
+            except Exception:
+                result = f"用法: /llm <0-{len(agent.list_llms()) - 1}>"
+        else:
+            lines = [f"{'→' if cur else '  '} [{i}] {name}" for i, name, cur in agent.list_llms()]
+            result = "LLMs:\n" + "\n".join(lines)
+        st.session_state.messages = list(st.session_state.messages) + \
+            [{"role": "user", "content": cmd, "time": ts}, {"role": "assistant", "content": result, "time": ts}]
+        _reset_and_rerun()
+    if cmd.startswith("/help"):
+        result = "📖 命令列表:\n/help - 显示帮助\n/status - 查看状态\n/stop - 停止当前任务\n/new - 开启新对话\n/restore - 恢复最近对话历史\n/continue - 列出可恢复会话\n/continue N - 恢复第N个会话\n/llm - 查看模型列表\n/llm N - 切换到第N个模型"
+        st.session_state.messages = list(st.session_state.messages) + \
+            [{"role": "user", "content": cmd, "time": ts}, {"role": "assistant", "content": result, "time": ts}]
         _reset_and_rerun()
     if cmd.startswith("/continue"):
         m = re.match(r'/continue\s+(\d+)\s*$', cmd.strip())
